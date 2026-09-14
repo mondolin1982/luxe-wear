@@ -127,7 +127,7 @@ window.saveAdminSettings=async function(){const storeName=document.getElementByI
     try{
       const image=await compressLuxeImage(imageFile,1000,0.78);
       btn.textContent='جارٍ حفظ المنتج...';
-      const {data,error}=await luxeSupabase.from('products').insert({name,category,price,old_price,discount,rating,reviews:0,badge,image,stock,is_active,description}).select('*').single();
+      const {data,error}=await window.supabase.createClient("https://cofylrsbwxtqpsibbxvl.supabase.co","sb_publishable_u7zhMXjcKmo_GV1CyIp8sA_SJ6vdMFj").from('products').insert({name,category,price,old_price,discount,rating,reviews:0,badge,image,stock,is_active,description}).select('*').single();
       if(error)throw error;
       if(Array.isArray(products))products.unshift(luxeMapProduct(data,[]));
       if(typeof save==='function')save();
