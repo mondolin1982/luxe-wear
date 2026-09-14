@@ -1,0 +1,36 @@
+name: Fix product save
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch only image save handler
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          old="""btn.textContent='جارٍ حفظ المنتج...';
+      const {data,error}=await luxeSupabase.from('products').insert"""
+          new="""btn.textContent='جارٍ حفظ المنتج...';
+      const dbClient=(window.supabase&&window.supabase.createClient)?window.supabase.createClient('https://cofylrsbwxtqpsibbxvl.supabase.co','sb_publishable_u7zhMXjcKmo_GV1CyIp8sA_SJ6vdMFj'):null;
+      if(!dbClient)throw new Error('Supabase is not ready');
+      const {data,error}=await dbClient.from('products').insert"""
+          if old not in s:
+              raise SystemExit('target not found')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet || git commit -m "إصلاح حفظ المنتج فقط [skip ci]"
+          git push
