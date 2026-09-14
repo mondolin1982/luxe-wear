@@ -2,7 +2,7 @@ name: Fix product image upload
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/fix-product-images.yml']
+    paths: ['.github/workflows/fix-product-images.yml', 'DEPLOY_IMAGE_PATCH.txt']
   workflow_dispatch:
 permissions:
   contents: write
@@ -17,15 +17,91 @@ jobs:
           from pathlib import Path
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
-          old='''    btn.disabled=true;\n    btn.textContent="جارٍ رفع الصورة...";\n    const safeName=imageFile.name.replace(/[^a-zA-Z0-9._-]/g,"_");\n    const imagePath=`products/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${safeName}`;\n    const uploadRes=await luxeSupabase.storage.from("product-images").upload(imagePath,imageFile,{cacheControl:"3600",upsert:false,contentType:imageFile.type});\n    if(uploadRes.error){\n        console.error("Image upload error:",uploadRes.error);\n        errBox.textContent="تعذر رفع الصورة. يجب إنشاء Bucket باسم product-images في Supabase Storage وجعله Public.";\n        errBox.classList.remove("hidden");\n        btn.disabled=false;\n        btn.textContent="حفظ المنتج";\n        return;\n    }\n    const {data:publicData}=luxeSupabase.storage.from("product-images").getPublicUrl(imagePath);\n    const image=publicData.publicUrl;\n    btn.textContent="جارٍ حفظ المنتج...";'''
-          new='''    btn.disabled=true;\n    btn.textContent="جارٍ تجهيز الصورة...";\n    let image="";\n    try{ image=await compressLuxeImage(imageFile,1000,0.78); }\n    catch(imageError){\n        console.error("Image processing error:",imageError);\n        errBox.textContent="تعذر تجهيز الصورة. اختر صورة أخرى وحاول مرة ثانية.";\n        errBox.classList.remove("hidden");\n        btn.disabled=false;\n        btn.textContent="حفظ المنتج";\n        return;\n    }\n    btn.textContent="جارٍ حفظ المنتج...";'''
-          helper='''async function compressLuxeImage(file,maxSize=1000,quality=0.78){\n    return new Promise((resolve,reject)=>{\n        const reader=new FileReader();\n        reader.onerror=()=>reject(reader.error||new Error("تعذر قراءة الصورة"));\n        reader.onload=()=>{\n            const img=new Image();\n            img.onerror=()=>reject(new Error("ملف الصورة غير صالح"));\n            img.onload=()=>{\n                const scale=Math.min(1,maxSize/Math.max(img.naturalWidth||img.width,img.naturalHeight||img.height));\n                const canvas=document.createElement("canvas");\n                canvas.width=Math.max(1,Math.round((img.naturalWidth||img.width)*scale));\n                canvas.height=Math.max(1,Math.round((img.naturalHeight||img.height)*scale));\n                const ctx=canvas.getContext("2d");\n                if(!ctx){reject(new Error("Canvas غير متاح"));return;}\n                ctx.drawImage(img,0,0,canvas.width,canvas.height);\n                resolve(canvas.toDataURL("image/jpeg",quality));\n            };\n            img.src=reader.result;\n        };\n        reader.readAsDataURL(file);\n    });\n}\n\n'''
-          if old not in s:
-              raise SystemExit('target block not found')
-          s=s.replace(old,new,1)
-          marker='async function saveNewProduct(e){'
-          if helper not in s:
-              s=s.replace(marker,helper+marker,1)
+          start=s.find('async function saveNewProduct(e){')
+          marker='window.addProductPrompt = openProductForm;'
+          end=s.find(marker,start)
+          if start < 0 or end < 0:
+              raise SystemExit('saveNewProduct boundaries not found; design was not changed')
+          helper='''async function compressLuxeImage(file,maxSize=1000,quality=0.78){
+              return new Promise((resolve,reject)=>{
+                  const reader=new FileReader();
+                  reader.onerror=()=>reject(reader.error||new Error("تعذر قراءة الصورة"));
+                  reader.onload=()=>{
+                      const img=new Image();
+                      img.onerror=()=>reject(new Error("ملف الصورة غير صالح"));
+                      img.onload=()=>{
+                          const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+                          const scale=Math.min(1,maxSize/Math.max(w,h));
+                          const canvas=document.createElement("canvas");
+                          canvas.width=Math.max(1,Math.round(w*scale));
+                          canvas.height=Math.max(1,Math.round(h*scale));
+                          const ctx=canvas.getContext("2d");
+                          if(!ctx){reject(new Error("Canvas غير متاح"));return;}
+                          ctx.drawImage(img,0,0,canvas.width,canvas.height);
+                          resolve(canvas.toDataURL("image/jpeg",quality));
+                      };
+                      img.src=reader.result;
+                  };
+                  reader.readAsDataURL(file);
+              });
+          }
+
+          '''
+          func='''async function saveNewProduct(e){
+              e.preventDefault();
+              const btn=document.getElementById("pfSave");
+              const errBox=document.getElementById("pfError");
+              errBox.classList.add("hidden");
+              const name=document.getElementById("pfName").value.trim();
+              const category=document.getElementById("pfCategory").value;
+              const price=Number(document.getElementById("pfPrice").value);
+              const old_price=Number(document.getElementById("pfOldPrice").value)||0;
+              const discount=Number(document.getElementById("pfDiscount").value)||0;
+              const rating=Number(document.getElementById("pfRating").value)||5;
+              const stock=Number(document.getElementById("pfStock").value)||0;
+              const badge=document.getElementById("pfBadge").value;
+              const imageFile=document.getElementById("pfImage").files[0];
+              const description=document.getElementById("pfDescription").value.trim();
+              const is_active=document.getElementById("pfActive").checked;
+              if(!name || !imageFile || price<0 || stock<0){
+                  errBox.textContent="يرجى إكمال الحقول المطلوبة بشكل صحيح.";
+                  errBox.classList.remove("hidden");
+                  return;
+              }
+              btn.disabled=true;
+              btn.textContent="جارٍ تجهيز الصورة...";
+              let image="";
+              try{
+                  image=await compressLuxeImage(imageFile,1000,0.78);
+              }catch(imageError){
+                  console.error("Image processing error:",imageError);
+                  errBox.textContent="تعذر تجهيز الصورة. اختر صورة أخرى وحاول مرة ثانية.";
+                  errBox.classList.remove("hidden");
+                  btn.disabled=false;
+                  btn.textContent="حفظ المنتج";
+                  return;
+              }
+              btn.textContent="جارٍ حفظ المنتج...";
+              const {data,error}=await luxeSupabase.from("products").insert({
+                  name, category, price, old_price, discount, rating, reviews:0,
+                  badge, image, stock, is_active, description
+              }).select("*").single();
+              if(error){
+                  console.error("Add product error:",error);
+                  errBox.textContent="تعذر حفظ المنتج في قاعدة البيانات: "+(error.message||"خطأ غير معروف");
+                  errBox.classList.remove("hidden");
+                  btn.disabled=false;
+                  btn.textContent="حفظ المنتج";
+                  return;
+              }
+              products.unshift(luxeMapProduct(data, []));
+              save();
+              closeProductForm();
+              renderAdmin();
+          }
+
+          '''
+          s=s[:start]+helper+func+s[end:]
           p.write_text(s,encoding='utf-8')
           PY
       - name: Commit patch
@@ -33,5 +109,5 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add index.html
-          git diff --cached --quiet || git commit -m "إضافة إرفاق صور المنتجات بدون تغيير التصميم"
+          git diff --cached --quiet || git commit -m "إضافة إرفاق الصور من الهاتف بدون تغيير التصميم"
           git push
