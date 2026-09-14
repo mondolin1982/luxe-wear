@@ -11,104 +11,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Add image attachment handler only
+      - name: Add image attachment input only
         run: |
           python - <<'PY'
           from pathlib import Path
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
-          marker='<!-- LUXE_IMAGE_HANDLER -->'
-          if marker in s:
-              print('Image handler already present; nothing to change')
-              raise SystemExit(0)
-          code=r'''<script>
-          <!-- LUXE_IMAGE_HANDLER -->
-          (function(){
-            async function compressLuxeImage(file,maxSize=1000,quality=0.78){
-              return new Promise((resolve,reject)=>{
-                const reader=new FileReader();
-                reader.onerror=()=>reject(reader.error||new Error('تعذر قراءة الصورة'));
-                reader.onload=()=>{
-                  const img=new Image();
-                  img.onerror=()=>reject(new Error('ملف الصورة غير صالح'));
-                  img.onload=()=>{
-                    const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
-                    const scale=Math.min(1,maxSize/Math.max(w,h));
-                    const canvas=document.createElement('canvas');
-                    canvas.width=Math.max(1,Math.round(w*scale));
-                    canvas.height=Math.max(1,Math.round(h*scale));
-                    const ctx=canvas.getContext('2d');
-                    if(!ctx){reject(new Error('Canvas غير متاح'));return;}
-                    ctx.drawImage(img,0,0,canvas.width,canvas.height);
-                    resolve(canvas.toDataURL('image/jpeg',quality));
-                  };
-                  img.src=reader.result;
-                };
-                reader.readAsDataURL(file);
-              });
-            }
-            window.saveNewProduct=async function(e){
-              if(e && e.preventDefault)e.preventDefault();
-              const btn=document.getElementById('pfSave');
-              const errBox=document.getElementById('pfError');
-              if(!btn||!errBox)return;
-              errBox.classList.add('hidden');
-              const value=id=>{const x=document.getElementById(id);return x?x.value:''};
-              const name=value('pfName').trim();
-              const category=value('pfCategory');
-              const price=Number(value('pfPrice'));
-              const old_price=Number(value('pfOldPrice'))||0;
-              const discount=Number(value('pfDiscount'))||0;
-              const rating=Number(value('pfRating'))||5;
-              const stock=Number(value('pfStock'))||0;
-              const badge=value('pfBadge');
-              const imageInput=document.getElementById('pfImage');
-              const imageFile=imageInput&&imageInput.files?imageInput.files[0]:null;
-              const description=value('pfDescription').trim();
-              const active=document.getElementById('pfActive');
-              const is_active=active?active.checked:true;
-              if(!name||!imageFile||price<0||stock<0){
-                errBox.textContent='يرجى إكمال الحقول المطلوبة بشكل صحيح.';
-                errBox.classList.remove('hidden');
-                return false;
-              }
-              btn.disabled=true; btn.textContent='جارٍ تجهيز الصورة...';
-              try{
-                const image=await compressLuxeImage(imageFile,1000,0.78);
-                btn.textContent='جارٍ حفظ المنتج...';
-                const {data,error}=await luxeSupabase.from('products').insert({name,category,price,old_price,discount,rating,reviews:0,badge,image,stock,is_active,description}).select('*').single();
-                if(error)throw error;
-                if(Array.isArray(products))products.unshift(luxeMapProduct(data,[]));
-                if(typeof save==='function')save();
-                if(typeof closeProductForm==='function')closeProductForm();
-                if(typeof renderAdmin==='function')renderAdmin();
-              }catch(error){
-                console.error('LUXE image product error:',error);
-                errBox.textContent='تعذر حفظ المنتج: '+(error.message||'خطأ غير معروف');
-                errBox.classList.remove('hidden');
-                btn.disabled=false; btn.textContent='حفظ المنتج';
-                return false;
-              }
-              return false;
-            };
-            window.addEventListener('load',function(){
-              setTimeout(function(){
-                const input=document.getElementById('pfImage');
-                if(input)input.setAttribute('accept','image/*');
-              },500);
-            });
-          })();
-          </script>'''
-          pos=s.rfind('</body>')
-          if pos<0: raise SystemExit('body end not found; design was not changed')
-          s=s[:pos]+code+'\n'+s[pos:]
-          p.write_text(s,encoding='utf-8')
-          print('Image handler added; design markup was not modified')
+          old='<label class="text-xs font-bold block">رابط صورة المنتج *<input id="pfImage" required class="w-full mt-1 border border-stone-200 rounded-xl p-3 font-normal" placeholder="https://..."></label>'
+          new='<label class="text-xs font-bold block">إرفاق صورة المنتج *<input id="pfImage" type="file" accept="image/*" required class="w-full mt-1 border border-stone-200 rounded-xl p-3 font-normal"><span class="block text-[11px] text-stone-400 mt-1">اختر صورة من الهاتف وسيتم تجهيزها تلقائياً للمتجر.</span></label>'
+          if new in s:
+              print('Image attachment input already present; nothing to change')
+          elif old in s:
+              s=s.replace(old,new,1)
+              p.write_text(s,encoding='utf-8')
+              print('Image attachment input updated; no other markup changed')
+          else:
+              raise SystemExit('Exact product image input was not found; design was not changed')
           PY
       - name: Commit patch
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add index.html
-          git diff --cached --quiet || git commit -m "إضافة إرفاق الصور من الهاتف دون تغيير التصميم"
+          git diff --cached --quiet || git commit -m "إضافة إرفاق صورة المنتج من الهاتف"
           git push
