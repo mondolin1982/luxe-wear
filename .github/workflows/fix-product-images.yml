@@ -1,5 +1,8 @@
 name: Fix product image upload
 on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/fix-product-images.yml']
   workflow_dispatch:
 permissions:
   contents: write
