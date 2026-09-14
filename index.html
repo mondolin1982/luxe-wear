@@ -72,5 +72,83 @@ window.handlePlaceOrder=async function(e){e.preventDefault();if(!cart.length)ret
 window.deleteProduct=async function(id){if(!confirm('حذف هذا المنتج؟'))return;const{error}=await luxeSupabase.from('products').delete().eq('id',id);if(error){console.error(error);return alert('تعذر حذف المنتج.')}products=products.filter(p=>p.id!==id);wishlist=wishlist.filter(x=>x!==id);save();renderAdmin()};window.setOrderStatus=async function(id,status){const o=orders.find(x=>x.id===id);if(!o||!o.dbId)return;const dbStatus=status==='جديد'?'pending':status;const{error}=await luxeSupabase.from('orders').update({status:dbStatus,updated_at:new Date().toISOString()}).eq('id',o.dbId);if(error){console.error(error);return alert('تعذر تحديث حالة الطلب.')}o.status=status;save();renderAdmin()};
 window.saveAdminSettings=async function(){const storeName=document.getElementById('setStoreName').value.trim()||'LUXE WEAR',phone=document.getElementById('setPhone').value.replace(/\D/g,''),whatsapp=document.getElementById('setWhatsApp').value.replace(/\D/g,'');const first=await luxeSupabase.from('store_settings').select('id').order('created_at',{ascending:true}).limit(1).single();if(first.error){console.error(first.error);return alert('تعذر قراءة إعدادات المتجر.')}const{error}=await luxeSupabase.from('store_settings').update({store_name:storeName,phone,whatsapp,updated_at:new Date().toISOString()}).eq('id',first.data.id);if(error){console.error(error);return alert('تعذر حفظ الإعدادات.')}settings.storeName=storeName;settings.phone=phone;settings.whatsapp=whatsapp;save();updateStoreBrand();alert('تم حفظ الإعدادات.');renderAdmin()};window.addEventListener('load',()=>{setTimeout(loadLuxeFromSupabase,100)});
 </script>
+<script>
+<!-- LUXE_IMAGE_HANDLER -->
+(function(){
+  async function compressLuxeImage(file,maxSize=1000,quality=0.78){
+    return new Promise((resolve,reject)=>{
+      const reader=new FileReader();
+      reader.onerror=()=>reject(reader.error||new Error('تعذر قراءة الصورة'));
+      reader.onload=()=>{
+        const img=new Image();
+        img.onerror=()=>reject(new Error('ملف الصورة غير صالح'));
+        img.onload=()=>{
+          const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+          const scale=Math.min(1,maxSize/Math.max(w,h));
+          const canvas=document.createElement('canvas');
+          canvas.width=Math.max(1,Math.round(w*scale));
+          canvas.height=Math.max(1,Math.round(h*scale));
+          const ctx=canvas.getContext('2d');
+          if(!ctx){reject(new Error('Canvas غير متاح'));return;}
+          ctx.drawImage(img,0,0,canvas.width,canvas.height);
+          resolve(canvas.toDataURL('image/jpeg',quality));
+        };
+        img.src=reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  window.saveNewProduct=async function(e){
+    if(e && e.preventDefault)e.preventDefault();
+    const btn=document.getElementById('pfSave');
+    const errBox=document.getElementById('pfError');
+    if(!btn||!errBox)return;
+    errBox.classList.add('hidden');
+    const value=id=>{const x=document.getElementById(id);return x?x.value:''};
+    const name=value('pfName').trim();
+    const category=value('pfCategory');
+    const price=Number(value('pfPrice'));
+    const old_price=Number(value('pfOldPrice'))||0;
+    const discount=Number(value('pfDiscount'))||0;
+    const rating=Number(value('pfRating'))||5;
+    const stock=Number(value('pfStock'))||0;
+    const badge=value('pfBadge');
+    const imageInput=document.getElementById('pfImage');
+    const imageFile=imageInput&&imageInput.files?imageInput.files[0]:null;
+    const description=value('pfDescription').trim();
+    const active=document.getElementById('pfActive');
+    const is_active=active?active.checked:true;
+    if(!name||!imageFile||price<0||stock<0){
+      errBox.textContent='يرجى إكمال الحقول المطلوبة بشكل صحيح.';
+      errBox.classList.remove('hidden');
+      return false;
+    }
+    btn.disabled=true; btn.textContent='جارٍ تجهيز الصورة...';
+    try{
+      const image=await compressLuxeImage(imageFile,1000,0.78);
+      btn.textContent='جارٍ حفظ المنتج...';
+      const {data,error}=await luxeSupabase.from('products').insert({name,category,price,old_price,discount,rating,reviews:0,badge,image,stock,is_active,description}).select('*').single();
+      if(error)throw error;
+      if(Array.isArray(products))products.unshift(luxeMapProduct(data,[]));
+      if(typeof save==='function')save();
+      if(typeof closeProductForm==='function')closeProductForm();
+      if(typeof renderAdmin==='function')renderAdmin();
+    }catch(error){
+      console.error('LUXE image product error:',error);
+      errBox.textContent='تعذر حفظ المنتج: '+(error.message||'خطأ غير معروف');
+      errBox.classList.remove('hidden');
+      btn.disabled=false; btn.textContent='حفظ المنتج';
+      return false;
+    }
+    return false;
+  };
+  window.addEventListener('load',function(){
+    setTimeout(function(){
+      const input=document.getElementById('pfImage');
+      if(input)input.setAttribute('accept','image/*');
+    },500);
+  });
+})();
+</script>
 </body>
 </html>
