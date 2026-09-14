@@ -1,0 +1,34 @@
+name: Fix product image upload
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch image upload only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          old='''    btn.disabled=true;\n    btn.textContent="جارٍ رفع الصورة...";\n    const safeName=imageFile.name.replace(/[^a-zA-Z0-9._-]/g,"_");\n    const imagePath=`products/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${safeName}`;\n    const uploadRes=await luxeSupabase.storage.from("product-images").upload(imagePath,imageFile,{cacheControl:"3600",upsert:false,contentType:imageFile.type});\n    if(uploadRes.error){\n        console.error("Image upload error:",uploadRes.error);\n        errBox.textContent="تعذر رفع الصورة. يجب إنشاء Bucket باسم product-images في Supabase Storage وجعله Public.";\n        errBox.classList.remove("hidden");\n        btn.disabled=false;\n        btn.textContent="حفظ المنتج";\n        return;\n    }\n    const {data:publicData}=luxeSupabase.storage.from("product-images").getPublicUrl(imagePath);\n    const image=publicData.publicUrl;\n    btn.textContent="جارٍ حفظ المنتج...";'''
+          new='''    btn.disabled=true;\n    btn.textContent="جارٍ تجهيز الصورة...";\n    let image="";\n    try{ image=await compressLuxeImage(imageFile,1000,0.78); }\n    catch(imageError){\n        console.error("Image processing error:",imageError);\n        errBox.textContent="تعذر تجهيز الصورة. اختر صورة أخرى وحاول مرة ثانية.";\n        errBox.classList.remove("hidden");\n        btn.disabled=false;\n        btn.textContent="حفظ المنتج";\n        return;\n    }\n    btn.textContent="جارٍ حفظ المنتج...";'''
+          helper='''async function compressLuxeImage(file,maxSize=1000,quality=0.78){\n    return new Promise((resolve,reject)=>{\n        const reader=new FileReader();\n        reader.onerror=()=>reject(reader.error||new Error("تعذر قراءة الصورة"));\n        reader.onload=()=>{\n            const img=new Image();\n            img.onerror=()=>reject(new Error("ملف الصورة غير صالح"));\n            img.onload=()=>{\n                const scale=Math.min(1,maxSize/Math.max(img.naturalWidth||img.width,img.naturalHeight||img.height));\n                const canvas=document.createElement("canvas");\n                canvas.width=Math.max(1,Math.round((img.naturalWidth||img.width)*scale));\n                canvas.height=Math.max(1,Math.round((img.naturalHeight||img.height)*scale));\n                const ctx=canvas.getContext("2d");\n                if(!ctx){reject(new Error("Canvas غير متاح"));return;}\n                ctx.drawImage(img,0,0,canvas.width,canvas.height);\n                resolve(canvas.toDataURL("image/jpeg",quality));\n            };\n            img.src=reader.result;\n        };\n        reader.readAsDataURL(file);\n    });\n}\n\n'''
+          if old not in s:
+              raise SystemExit('target block not found')
+          s=s.replace(old,new,1)
+          marker='async function saveNewProduct(e){'
+          if helper not in s:
+              s=s.replace(marker,helper+marker,1)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add index.html
+          git diff --cached --quiet || git commit -m "إضافة إرفاق صور المنتجات بدون تغيير التصميم"
+          git push
